@@ -1,0 +1,332 @@
+// =====================================================================================
+//  dax_measures.dax
+//  E-Commerce Sales & Customer Dashboard — Power BI measure library
+//
+//  HOW TO USE
+//    1. Open the .pbix (or a blank file).
+//    2. Modeling ▸ New Measure, then paste ONE measure block at a time.
+//    3. Set the Display folder shown in the `// folder:` comment on each measure.
+//
+//  MODEL THIS FILE EXPECTS (star schema — CSVs in data/powerbi/)
+//    FactSales      → dim_date[date]        (1:*)
+//    FactSales      → dim_customers[customer_id]
+//    FactSales      → dim_products[product_id]
+//    FactSales      → dim_campaigns[campaign_id]   (inactive/many-blank, optional)
+//    dim_date is marked as the Date table (Table tools ▸ Mark as date table)
+//
+//  CRITICAL: every revenue measure filters on is_realised = 1.
+//  Cancelled + Failed orders (10,953 orders / ₹262 M) must never enter a revenue KPI.
+// =====================================================================================
+
+
+// -------------------------------------------------------------------------------------
+// 1. CORE KPIs
+// -------------------------------------------------------------------------------------
+
+// folder: 01 Core KPIs
+Total Sales =
+CALCULATE (
+    SUM ( FactSales[line_revenue] ),
+    FactSales[is_realised] = 1
+)
+
+// folder: 01 Core KPIs
+Total Cost =
+CALCULATE (
+    SUM ( FactSales[line_cost] ),
+    FactSales[is_realised] = 1
+)
+
+// folder: 01 Core KPIs
+Gross Profit =
+CALCULATE (
+    SUM ( FactSales[line_profit] ),
+    FactSales[is_realised] = 1
+)
+
+// folder: 01 Core KPIs
+  -- DIVIDE handles the zero-denominator case; never use "/" for a KPI.
+Gross Margin % =
+DIVIDE ( [Gross Profit], [Total Sales] )
+
+// folder: 01 Core KPIs
+Total Orders =
+CALCULATE (
+    DISTINCTCOUNT ( FactSales[order_id] ),
+    FactSales[is_realised] = 1
+)
+
+// folder: 01 Core KPIs
+Total Customers =
+CALCULATE (
+    DISTINCTCOUNT ( FactSales[customer_id] ),
+    FactSales[is_realised] = 1
+)
+
+// folder: 01 Core KPIs
+Units Sold =
+CALCULATE (
+    SUM ( FactSales[quantity] ),
+    FactSales[is_realised] = 1
+)
+
+// folder: 01 Core KPIs
+  -- AOV must divide revenue by ORDERS, not by rows. Row-level division would
+  -- produce "average line value", a different and much smaller number.
+Average Order Value =
+DIVIDE ( [Total Sales], [Total Orders] )
+
+// folder: 01 Core KPIs
+Revenue per Customer =
+DIVIDE ( [Total Sales], [Total Customers] )
+
+// folder: 01 Core KPIs
+Units per Order =
+DIVIDE ( [Units Sold], [Total Orders] )
+
+
+// -------------------------------------------------------------------------------------
+// 2. LOSS / QUALITY KPIs — what the "all orders" definition would have hidden
+// -------------------------------------------------------------------------------------
+
+// folder: 02 Loss & Quality
+Lost Orders =
+CALCULATE (
+    DISTINCTCOUNT ( FactSales[order_id] ),
+    FactSales[is_lost_sale] = 1
+)
+
+// folder: 02 Loss & Quality
+Lost Revenue =
+CALCULATE (
+    SUM ( FactSales[line_revenue] ),
+    FactSales[is_lost_sale] = 1
+)
+
+// folder: 02 Loss & Quality
+Lost Revenue % of Demand =
+DIVIDE ( [Lost Revenue], [Lost Revenue] + [Total Sales] )
+
+// folder: 02 Loss & Quality
+Order Book Value =
+CALCULATE (
+    SUM ( FactSales[line_revenue] ),
+    FactSales[order_status] <> "Failed"
+)
+
+// folder: 02 Loss & Quality
+Return Rate % =
+DIVIDE (
+    CALCULATE ( COUNTROWS ( FactSales ), FactSales[is_returned] = 1 ),
+    CALCULATE ( COUNTROWS ( FactSales ), FactSales[is_realised] = 1 )
+)
+
+// folder: 02 Loss & Quality
+Delayed Delivery % =
+DIVIDE (
+    CALCULATE ( COUNTROWS ( FactSales ), FactSales[delayed_flag] = 1,
+                FactSales[is_realised] = 1 ),
+    CALCULATE ( COUNTROWS ( FactSales ), FactSales[delayed_flag] <> BLANK (),
+                FactSales[is_realised] = 1 )
+)
+
+
+// -------------------------------------------------------------------------------------
+// 3. TIME INTELLIGENCE — requires dim_date marked as the date table
+// -------------------------------------------------------------------------------------
+
+// folder: 03 Time Intelligence
+Sales PY =
+CALCULATE ( [Total Sales], SAMEPERIODLASTYEAR ( dim_date[date] ) )
+
+// folder: 03 Time Intelligence
+Sales YoY % =
+DIVIDE ( [Total Sales] - [Sales PY], [Sales PY] )
+
+// folder: 03 Time Intelligence
+Sales PM =
+CALCULATE ( [Total Sales], DATEADD ( dim_date[date], -1, MONTH ) )
+
+// folder: 03 Time Intelligence
+Sales MoM % =
+DIVIDE ( [Total Sales] - [Sales PM], [Sales PM] )
+
+// folder: 03 Time Intelligence
+Sales YTD =
+TOTALYTD ( [Total Sales], dim_date[date] )
+
+// folder: 03 Time Intelligence
+Sales QTD =
+TOTALQTD ( [Total Sales], dim_date[date] )
+
+// folder: 03 Time Intelligence
+Sales 3M Rolling Avg =
+CALCULATE (
+    AVERAGEX (
+        DATESINPERIOD ( dim_date[date], MAX ( dim_date[date] ), -3, MONTH ),
+        [Total Sales]
+    )
+)
+
+// folder: 03 Time Intelligence
+  -- Seasonality index: this month vs the average month. Powers the seasonality visual.
+Sales vs Avg Month =
+DIVIDE (
+    [Total Sales],
+    AVERAGEX ( VALUES ( dim_date[month_year] ), [Total Sales] )
+) - 1
+
+
+// -------------------------------------------------------------------------------------
+// 4. RANKING / CONTRIBUTION
+// -------------------------------------------------------------------------------------
+
+// folder: 04 Ranking
+Product Revenue Rank =
+RANKX ( ALLSELECTED ( dim_products[product_name] ), [Total Sales], , DESC, DENSE )
+
+// folder: 04 Ranking
+Top 10 Products Flag =
+IF ( [Product Revenue Rank] <= 10, 1, 0 )
+
+// folder: 04 Ranking
+Sales % of Total =
+DIVIDE ( [Total Sales], CALCULATE ( [Total Sales], ALLSELECTED () ) )
+
+// folder: 04 Ranking
+Category Sales % =
+DIVIDE (
+    [Total Sales],
+    CALCULATE ( [Total Sales], ALLSELECTED ( dim_products[category] ) )
+)
+
+// folder: 04 Ranking
+  -- Cumulative revenue share across products, for the Pareto visual.
+Product Cumulative Share % =
+VAR ProductsByRevenue =
+    ADDCOLUMNS (
+        ALLSELECTED ( dim_products[product_name] ),
+        "@rev", [Total Sales]
+    )
+VAR ThisRev = [Total Sales]
+VAR CumRev =
+    SUMX ( FILTER ( ProductsByRevenue, [@rev] >= ThisRev ), [@rev] )
+VAR TotalRev = SUMX ( ProductsByRevenue, [@rev] )
+RETURN DIVIDE ( CumRev, TotalRev )
+
+// folder: 04 Ranking
+Product Quadrant =
+VAR MarginThreshold = CALCULATE ( [Gross Margin %], ALLSELECTED () )
+VAR ShareThreshold = 1 / DISTINCTCOUNT ( dim_products[category] )
+RETURN
+    SWITCH (
+        TRUE (),
+        [Category Sales %] >= ShareThreshold && [Gross Margin %] >= MarginThreshold, "Star",
+        [Category Sales %] >= ShareThreshold,                                   "Volume driver",
+        [Gross Margin %] >= MarginThreshold,                                    "Margin niche",
+        "Underperformer"
+    )
+
+
+// -------------------------------------------------------------------------------------
+// 5. CUSTOMER ANALYTICS — RFM and retention
+// -------------------------------------------------------------------------------------
+
+// folder: 05 Customer
+Reference Date =
+-- The dataset ends 2025-12-31, so recency must be measured against that date,
+-- NOT against TODAY(), which would make every customer look churned.
+DATE ( 2025, 12, 31 )
+
+// folder: 05 Customer
+Customer Last Order Date =
+CALCULATE ( MAX ( FactSales[order_date] ), FactSales[is_realised] = 1 )
+
+// folder: 05 Customer
+Recency Days =
+DATEDIFF ( [Customer Last Order Date], [Reference Date], DAY )
+
+// folder: 05 Customer
+Customer Order Count =
+CALCULATE ( DISTINCTCOUNT ( FactSales[order_id] ), FactSales[is_realised] = 1 )
+
+// folder: 05 Customer
+R Score =
+VAR R = [Recency Days]
+RETURN
+    SWITCH ( TRUE (), R <= 60, 5, R <= 120, 4, R <= 240, 3, R <= 400, 2, 1 )
+
+// folder: 05 Customer
+F Score =
+VAR F = [Customer Order Count]
+RETURN
+    SWITCH ( TRUE (), F >= 8, 5, F >= 6, 4, F >= 4, 3, F >= 2, 2, 1 )
+
+// folder: 05 Customer
+M Score =
+VAR M = [Total Sales]
+VAR P80 = PERCENTILEX.INC ( ALLSELECTED ( dim_customers[customer_id] ), [Total Sales], 0.80 )
+VAR P60 = PERCENTILEX.INC ( ALLSELECTED ( dim_customers[customer_id] ), [Total Sales], 0.60 )
+VAR P40 = PERCENTILEX.INC ( ALLSELECTED ( dim_customers[customer_id] ), [Total Sales], 0.40 )
+VAR P20 = PERCENTILEX.INC ( ALLSELECTED ( dim_customers[customer_id] ), [Total Sales], 0.20 )
+RETURN
+    SWITCH ( TRUE (), M >= P80, 5, M >= P60, 4, M >= P40, 3, M >= P20, 2, 1 )
+
+// folder: 05 Customer
+RFM Segment =
+VAR R = [R Score]
+VAR F = [F Score]
+VAR M = [M Score]
+RETURN
+    SWITCH (
+        TRUE (),
+        R >= 4 && F >= 4 && M >= 4, "1. Champions",
+        R >= 3 && F >= 4,           "2. Loyal",
+        R >= 4 && F <= 2,           "3. New / Promising",
+        R = 3  && F >= 2,           "4. Needs Attention",
+        R <= 2 && F >= 4 && M >= 4, "5. At Risk (high value)",
+        R <= 2 && M >= 4,           "6. Cannot Lose",
+        R <= 2 && F <= 2,           "7. Lost",
+        "8. Occasional"
+    )
+
+// folder: 05 Customer
+Customers =
+CALCULATE ( DISTINCTCOUNT ( FactSales[customer_id] ), FactSales[is_realised] = 1 )
+
+// folder: 05 Customer
+Repeat Customers =
+CALCULATE (
+    COUNTROWS ( FILTER ( VALUES ( dim_customers[customer_id] ), [Customer Order Count] > 1 ) )
+)
+
+// folder: 05 Customer
+Repeat Rate % =
+DIVIDE ( [Repeat Customers], [Customers] )
+
+// folder: 05 Customer
+One-Time Customers = [Customers] - [Repeat Customers]
+
+// folder: 05 Customer
+  -- FYI only: a flat 90-day "active" rule for promo targeting.
+Customers Active 90d =
+CALCULATE (
+    DISTINCTCOUNT ( FactSales[customer_id] ),
+    FactSales[is_realised] = 1,
+    FactSales[order_date] > [Reference Date] - 90
+)
+
+
+// -------------------------------------------------------------------------------------
+// 6. DYNAMIC TITLES (optional polish — bind a card title to a measure)
+// -------------------------------------------------------------------------------------
+
+// folder: 06 Format
+KPI Title =
+"Sales · " & SELECTEDVALUE ( dim_date[year], "All years" )
+    & " · "  & SELECTEDVALUE ( dim_products[category], "All categories" )
+
+// folder: 06 Format
+  -- Custom format string for ₹ Crore display
+Sales Cr Label =
+FORMAT ( [Total Sales] / 10000000, "#,##0.0" ) & " Cr"

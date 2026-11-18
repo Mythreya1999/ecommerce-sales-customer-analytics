@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Generated artefacts — rebuild with:  python python/build_pipeline.py
+# These are excluded because they are ~340 MB combined (raw_data.csv and
+# cleaned_data.csv each exceed GitHub's 100 MB per-file hard limit).
+# ---------------------------------------------------------------------------
+data/raw_data.csv
+data/cleaned_data.csv
+data/powerbi/fact_sales.csv
+db/*.db
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Local config / secrets
+# ---------------------------------------------------------------------------
+.env
+.env.*
