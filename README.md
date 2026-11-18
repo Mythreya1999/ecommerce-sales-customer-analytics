@@ -12,7 +12,7 @@ ready exports**, and specified for **Power BI**.
 
 > **Live version:** enable GitHub Pages on this repo (Settings → Pages → Deploy from branch `/root`)
 > and `index.html` will serve the interactive dashboard at
-> `https://<your-username>.github.io/ecommerce-sales-customer-analytics/`.
+> `https://Mythreya1999.github.io/ecommerce-sales-customer-analytics/`.
 
 ---
 
